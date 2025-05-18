@@ -1,10 +1,11 @@
 use std::path::{Path, PathBuf};
 
+use ndarray::ArrayD;
 use ort::session::Session;
 use crate::error::Result;
 
 pub struct Engine {
-    pub session: Session
+    session: Session
 }
 
 impl Engine {
@@ -17,7 +18,8 @@ impl Engine {
         })
     }
 
-    pub fn run(){
-
+    pub fn run(&self, inputs: ArrayD<f32>){
+        dbg!(&self.session.inputs);
+        dbg!(&self.session.outputs);
     } 
 }

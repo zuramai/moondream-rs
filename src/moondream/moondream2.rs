@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use ndarray::ArrayD;
+use image::DynamicImage;
+use ndarray::{Array1, ArrayD};
 use ndarray_npy::read_npy;
 use tokenizers::Tokenizer;
 use super::config::{self, MoondreamConfig};
+use super::preprocess;
+use super::types::EncodedImage;
 use crate::error::{Error, Result};
 use super::engine::{self, Engine};
 
@@ -23,7 +26,7 @@ pub struct Moondream {
 }
 
 impl Moondream {
-    pub fn from_path(model_path: &str, config_path: &str) -> Result<Self> {
+    pub fn from_path(model_path: &str) -> Result<Self> {
         let path = Path::new(model_path);
         let initial_kv_cache = read_npy(&path.join("initial_kv_cache.npy"))
             .map_err(|e| Error::Error(e.to_string()))?;
@@ -41,9 +44,17 @@ impl Moondream {
             tokenizer: Tokenizer::from_file(path.join("tokenizer.json"))?
         })
     }
-    pub fn encode_image() {
+    pub fn encode_image(&self, image: DynamicImage) -> Result<EncodedImage> {
+        // Run vision encoder
+        let (image_patches, template) = preprocess::create_patches(image, 378);
+        self.vision_encoder.run(image_patches.into_dyn());
 
+        Ok(EncodedImage{
+            kv_cache: Array1::from(Vec::from([1,2,3])).into_dyn(),
+            pos: 1
+        })
     }
+
     pub fn caption(&self) -> String {
         "".into()
     }
@@ -55,5 +66,17 @@ impl Moondream {
     }
     pub fn point(&self) -> String {
         "".into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Moondream;
+
+    #[test]
+    pub fn test_encode_image() {
+        let md = Moondream::from_path("./model").expect("Failed to initialize moondream");
+        let img = image::open("person.webp").expect("Failed to open image person.webp");
+        md.encode_image(img);
     }
 }
