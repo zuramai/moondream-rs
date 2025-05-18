@@ -4,9 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+candle-core = "0.8.3"
+candle-nn = "0.8.3"
+candle-transformers = "0.8.3"
 dotenvy = "0.15.7"
 image = "0.25.5"
 ndarray = "0.16.1"
+ndarray-npy = "0.9.1"
+ort = "=2.0.0-rc.9"
 prost = { version = "0.13.4", features = ["prost-derive"] }
 reqwest = { version = "0.12.12", features = ["json"] }
 serde = "1.0.217"

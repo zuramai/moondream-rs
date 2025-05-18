@@ -1,10 +1,14 @@
-use std::error::Error as E;
+use std::{error::Error as E, fs::File};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("Error: {0}")]
     Error(String),
+    #[error("Io Error: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error("{0}")]
+    SerializeError(#[from] serde_json::error::Error),
     #[error("Triton inference error: {0}")]
     TritonInferenceError(String),
     #[error("Invalid Triton GRPC URI: {0}")]
@@ -17,6 +21,8 @@ pub enum Error {
     TokenizerError(#[from] tokenizers::Error),
     #[error("Shape error: {0}")]
     ShapeError(#[from] ndarray::ShapeError),
+    #[error("Ort Error: {0}")]
+    OrtError(#[from] ort::error::Error),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

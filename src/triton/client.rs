@@ -221,12 +221,13 @@ impl InferInputs {
             _ => panic!("Invalid input type"),
         }
     }
-    pub fn add_input_fp16(&mut self, name: &str, contents: ArrayD<f32>) {
+    pub fn add_input_fp16(mut self, name: &str, contents: ArrayD<f32>) -> Self {
         match self {
-            InferInputs::F16(inputs) => {
+            InferInputs::F16(ref mut inputs) => {
                 inputs.push(InferInputRequest::new(name.to_string(), contents.shape().to_vec(), "FP16".to_string(), contents.into_raw_vec_and_offset().0));
             },
             _ => panic!("Invalid input type"),
         }
+        self
     }
 }
