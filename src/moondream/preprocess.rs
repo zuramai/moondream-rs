@@ -1,8 +1,9 @@
-use std::cmp::max;
+use std::{cmp::max, ops::Sub};
 
 use half::f16;
 use image::{DynamicImage, GenericImageView};
 use ndarray::{Array3, Array4, Axis};
+use tokenizers::processors::template;
 
 use super::util::{normalize_image, normalize_std_mean};
 
@@ -29,11 +30,13 @@ pub fn create_patches(image: DynamicImage, image_patch_size: u32) -> (Array4<f16
     
     if (max_dimension as f32) < (image_patch_size as f32) * 1.4 {
         selected_template = (1,1);
+        // dbg!(&selected_template);
     } else {
-        let aspect_ratio = width / height;
-        let template_aspect_ratios_diff: Vec<u32> = res_templates.iter().map(|ratio| ((ratio.0 / ratio.1) as i32).abs_diff(aspect_ratio as i32)).collect();
-        let min = template_aspect_ratios_diff.iter().enumerate().min().unwrap().0;
-        selected_template = res_templates[min];
+        let aspect_ratio = width as f32 / height as f32;
+        let mut template_aspect_ratios_diff: Vec<(usize, f32)> = res_templates.iter().enumerate().map(|(i, ratio)| (i, ((ratio.1 / ratio.0) as f32).sub(aspect_ratio as f32).abs())).collect();
+        template_aspect_ratios_diff.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        let min_index = template_aspect_ratios_diff[0].0;
+        selected_template = res_templates[min_index];
     }
 
     let patch_width = width / selected_template.1;
@@ -43,10 +46,10 @@ pub fn create_patches(image: DynamicImage, image_patch_size: u32) -> (Array4<f16
         for col in 0..selected_template.1 {
             let x_min = col * patch_width;
             let y_min = row * patch_height;
-            patches.push(
-                image.crop_imm(x_min, y_min, patch_width, patch_height)
-                    .resize_exact(image_patch_size, image_patch_size, image::imageops::FilterType::Nearest)
-            );
+            let img_patch = image.crop_imm(x_min, y_min, patch_width, patch_height)
+                .resize_exact(image_patch_size, image_patch_size, image::imageops::FilterType::Nearest);
+            // img_patch.save(format!("patch-{}-{}.jpg", row, col));
+            patches.push(img_patch);
         }
     }
     let patches_vec: Vec<Array3<f32>> = patches.into_iter().map(|patch| normalize_std_mean(normalize_image(patch), [0.5, 0.5, 0.5], [0.5, 0.5, 0.5])).collect();

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use half::f16;
 use image::DynamicImage;
-use ndarray::{Array1, ArrayD};
+use ndarray::{s, Array1, ArrayD, Axis, Ix3};
 use tokenizers::Tokenizer;
 use super::config::{self, MoondreamConfig};
 use super::preprocess;
@@ -50,7 +50,17 @@ impl Moondream {
     pub fn encode_image(&self, image: DynamicImage) -> Result<EncodedImage> {
         // Run vision encoder
         let (image_patches, template) = preprocess::create_patches(image, 378);
-        let patch_emb = self.vision_encoder.run(image_patches.into_dyn())?;
+        dbg!(&image_patches.shape());
+        let mut patch_emb = self.vision_encoder.run(image_patches.into_dyn())?;
+
+        dbg!(&patch_emb.shape());
+        // Reassemble patches into a single image embedding
+        // let global_patch = patch_emb.slice(s![0]);
+        // if template == (1, 1) {
+        //     patch_emb = ndarray::concatenate(Axis(2), &[global_patch.view(), global_patch.view()])?;
+        // }
+
+
         Ok(EncodedImage{
             kv_cache: Array1::from(Vec::from([1,2,3])).into_dyn(),
             pos: 1
@@ -78,7 +88,7 @@ mod tests {
     #[test]
     pub fn test_encode_image() {
         let md = Moondream::from_path("./model").expect("Failed to initialize moondream");
-        let img = image::open("person.webp").expect("Failed to open image person.webp");
-        md.encode_image(img);
+        let img = image::open("demo-1.jpg").expect("Failed to open image person.webp");
+        assert!(md.encode_image(img).is_ok());
     }
 }

@@ -19,13 +19,12 @@ impl Engine {
         })
     }
 
-    pub fn run(&self, inputs: ArrayD<f16>) -> Result<ArrayD<f32>> {
-        dbg!(&self.session.inputs);
-        dbg!(&self.session.outputs);
+    pub fn run(&self, inputs: ArrayD<f16>) -> Result<ArrayD<f16>> {
+        dbg!(&inputs.shape());
 
         let inference_output =self.session.run(ort::inputs![inputs]?)?;
         let output = inference_output.get("output").ok_or(Error::Error("Output key does not exists".into()))?;
-        let extracted = output.try_extract_tensor::<f32>()?;
+        let extracted = output.try_extract_tensor::<f16>()?;
         return Ok(extracted.into_dyn().to_owned());
     } 
 }
