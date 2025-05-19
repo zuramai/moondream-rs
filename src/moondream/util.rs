@@ -30,15 +30,14 @@ pub fn normalize_image(image: DynamicImage) -> Array3<f32> {
     )
 }
 
-pub fn read_npy(path: &Path) -> Result<ndarray::ArrayD<f32>> {
+pub fn read_npy(path: &Path) -> Result<ndarray::ArrayD<f16>> {
     let npy_bytes = std::fs::read(path).unwrap();
     let reader = npyz::NpyFile::new(&npy_bytes[..])?;
     let shape = reader.shape().to_vec();
     let order = reader.order();
     let data = reader.into_vec::<f16>()?;
-    let data_f32: Vec<f32> = data.into_iter().map(|x| x.to_f32()).collect();
 
-    let result = to_array_d(data_f32, shape, order);
+    let result = to_array_d(data, shape, order);
     println!("result: {:?}", result.shape());
     
     return Ok(result);

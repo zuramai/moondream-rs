@@ -1,11 +1,12 @@
 use std::cmp::max;
 
+use half::f16;
 use image::{DynamicImage, GenericImageView};
 use ndarray::{Array3, Array4, Axis};
 
 use super::util::{normalize_image, normalize_std_mean};
 
-pub fn create_patches(image: DynamicImage, image_patch_size: u32) -> (Array4<f32>, (u32, u32)) {
+pub fn create_patches(image: DynamicImage, image_patch_size: u32) -> (Array4<f16>, (u32, u32)) {
     // start with global patch
     let mut patches = vec![
         image.resize_exact(image_patch_size, image_patch_size, image::imageops::FilterType::Nearest)
@@ -55,5 +56,5 @@ pub fn create_patches(image: DynamicImage, image_patch_size: u32) -> (Array4<f32
         .expect("Failed to stack patches into Array4");
 
 
-    return (normalized_patches, selected_template);
+    return (normalized_patches.mapv(|v| f16::from_f32(v)), selected_template);
 }

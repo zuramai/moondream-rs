@@ -1,6 +1,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use half::f16;
 use image::DynamicImage;
 use ndarray::{Array1, ArrayD};
 use tokenizers::Tokenizer;
@@ -21,7 +22,7 @@ pub struct Moondream {
     coord_encoder: engine::Engine,
     coord_decoder: engine::Engine,
     tokenizer: Tokenizer,
-    initial_kv_cache: ArrayD<f32>,
+    initial_kv_cache: ArrayD<f16>,
     config: MoondreamConfig,
 }
 
@@ -49,8 +50,7 @@ impl Moondream {
     pub fn encode_image(&self, image: DynamicImage) -> Result<EncodedImage> {
         // Run vision encoder
         let (image_patches, template) = preprocess::create_patches(image, 378);
-        self.vision_encoder.run(image_patches.into_dyn());
-
+        let patch_emb = self.vision_encoder.run(image_patches.into_dyn())?;
         Ok(EncodedImage{
             kv_cache: Array1::from(Vec::from([1,2,3])).into_dyn(),
             pos: 1
