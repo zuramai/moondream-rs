@@ -1,5 +1,9 @@
+use std::{fs::File, path::Path};
+
 use image::{DynamicImage, GenericImageView};
 use ndarray::Array3;
+use half::f16;
+use crate::error::Result;
 
 pub fn normalize_std_mean(arr: Array3<f32>, mean: [f32; 3], std: [f32; 3]) -> Array3<f32> {
     arr.map(|x| (x - mean[0]) / std[0])
@@ -24,4 +28,28 @@ pub fn normalize_image(image: DynamicImage) -> Array3<f32> {
             }
         }
     )
+}
+
+pub fn read_npy(path: &Path) -> Result<ndarray::ArrayD<f32>> {
+    let npy_bytes = std::fs::read(path).unwrap();
+    let reader = npyz::NpyFile::new(&npy_bytes[..])?;
+    let shape = reader.shape().to_vec();
+    let order = reader.order();
+    let data = reader.into_vec::<f16>()?;
+    let data_f32: Vec<f32> = data.into_iter().map(|x| x.to_f32()).collect();
+
+    let result = to_array_d(data_f32, shape, order);
+    println!("result: {:?}", result.shape());
+    
+    return Ok(result);
+}
+
+fn to_array_d<T>(data: Vec<T>, shape: Vec<u64>, order: npyz::Order) -> ndarray::ArrayD<T> {
+    use ndarray::ShapeBuilder;
+
+    let shape = shape.into_iter().map(|x| x as usize).collect::<Vec<_>>();
+    let true_shape = shape.set_f(order == npyz::Order::Fortran);
+
+    ndarray::ArrayD::from_shape_vec(true_shape, data)
+        .unwrap_or_else(|e| panic!("shape error: {}", e))
 }

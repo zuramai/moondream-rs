@@ -1,14 +1,14 @@
-use std::collections::HashMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use image::DynamicImage;
 use ndarray::{Array1, ArrayD};
-use ndarray_npy::read_npy;
 use tokenizers::Tokenizer;
 use super::config::{self, MoondreamConfig};
 use super::preprocess;
 use super::types::EncodedImage;
 use crate::error::{Error, Result};
+use crate::moondream::util;
 use super::engine::{self, Engine};
 
 pub struct Moondream {
@@ -28,8 +28,10 @@ pub struct Moondream {
 impl Moondream {
     pub fn from_path(model_path: &str) -> Result<Self> {
         let path = Path::new(model_path);
-        let initial_kv_cache = read_npy(&path.join("initial_kv_cache.npy"))
-            .map_err(|e| Error::Error(e.to_string()))?;
+        println!("reading npy from {}", &path.join("initial_kv_cache.npy").to_str().unwrap());
+        let initial_kv_cache = util::read_npy(&path.join("initial_kv_cache.npy"))?;
+        
+        println!("reading npy done");
         Ok(Self {
             vision_encoder: Engine::new(path.join("vision_encoder.onnx"))?,
             vision_projection: Engine::new(path.join("vision_projection.onnx"))?,
