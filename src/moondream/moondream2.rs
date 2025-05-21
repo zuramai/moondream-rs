@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -51,7 +52,7 @@ impl Moondream {
         // Run vision encoder
         let (image_patches, template) = preprocess::create_patches(image, 378);
         dbg!(&image_patches.shape());
-        let mut patch_emb = self.vision_encoder.run(image_patches.into_dyn())?;
+        let mut patch_emb = self.vision_encoder.run(HashMap::from([("input", image_patches.into_dyn())]), "output")?;
         let patch_emb_shape = patch_emb.shape();
 
         dbg!(&patch_emb.shape());
@@ -91,14 +92,29 @@ impl Moondream {
             dbg!(patch_emb.shape());
         }
 
-        patch_emb.insert_axis(Axis(0));
+        let patch_emb = patch_emb.insert_axis(Axis(0));
 
-        
+        // run vision projection
+        let input_embeds = self.vision_projection.run(HashMap::from([("input", patch_emb)]), "output")?;
 
+        let kv_cache = self.initial_kv_cache.view();
+        let pos = input_embeds.shape()[input_embeds.ndim() - 2] + kv_cache.shape()[kv_cache.ndim() - 2];
+
+        let kv_cache_update  = self.text_decoder.run(HashMap::from([
+            ("input_embeds", input_embeds),
+            ("kv_cache", kv_cache.to_owned())
+        ]), "new_kv_cache")?;
+
+        dbg!(&kv_cache_update.shape());
+
+        let kv_cache = ndarray::concatenate![Axis(kv_cache.ndim()-2), kv_cache, kv_cache_update];
+
+        dbg!(&kv_cache.shape());
+        dbg!(&pos);
 
         Ok(EncodedImage{
-            kv_cache: Array1::from(Vec::from([1,2,3])).into_dyn(),
-            pos: 1
+            kv_cache: kv_cache,
+            pos: pos
         })
     }
 

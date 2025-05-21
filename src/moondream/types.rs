@@ -1,6 +1,7 @@
+use half::f16;
 
 #[derive(Debug)]
 pub struct EncodedImage {
-    pub pos: i32,
-    pub kv_cache: ndarray::ArrayD<i32>
+    pub pos: usize,
+    pub kv_cache: ndarray::ArrayD<f16>
 }
