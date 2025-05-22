@@ -40,8 +40,8 @@ pub struct TemplateConfig {
 }
 #[derive(Deserialize)]
 pub struct CaptionConfig {
-    pub short: Vec<i32>,
-    pub normal: Vec<i32>
+    pub short: Vec<i64>,
+    pub normal: Vec<i64>
 }
 #[derive(Deserialize)]
 pub struct PrefixSuffixConfig {

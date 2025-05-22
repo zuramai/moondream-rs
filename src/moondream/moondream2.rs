@@ -4,14 +4,16 @@ use std::path::{Path, PathBuf};
 
 use half::f16;
 use image::DynamicImage;
-use ndarray::{s, Array1, Array3, Array6, ArrayD, Axis, Ix2, Ix3};
+use ndarray::{s, Array1, Array2, Array3, Array6, ArrayD, Axis, Ix2, Ix3};
 use tokenizers::Tokenizer;
 use super::config::{self, MoondreamConfig};
-use super::preprocess;
+use super::{preprocess, types};
 use super::types::EncodedImage;
 use crate::error::{Error, Result};
 use crate::moondream::util;
 use super::engine::{self, Engine};
+
+const DEFAULT_MAX_TOKENS: i32 = 512;
 
 pub struct Moondream {
     vision_encoder: engine::Engine,
@@ -118,8 +120,23 @@ impl Moondream {
         })
     }
 
-    pub fn caption(&self, image: DynamicImage, length: String) -> Result<String> {
+    pub fn caption(&self, image: DynamicImage, length: types::CaptionLength) -> Result<String> {
+        let input_ids = match length {
+            types::CaptionLength::Normal => self.config.templates.caption.normal.clone(),
+            types::CaptionLength::Short => self.config.templates.caption.short.clone(),
+        };
+        dbg!(&input_ids);
+
+
+        let input_embeds = self.text_encoder.run::<i64, f16>(HashMap::from([
+            ("input_ids", Array2::from_shape_vec((1, input_ids.len()), input_ids)?.into_dyn())
+        ]), "input_embeds")?;
+
+
         let encoded_image = self.encode_image(image)?;
+        let max_tokens = DEFAULT_MAX_TOKENS;
+
+        self.generate(input_embeds, encoded_image, max_tokens);
 
         Ok("".into())
     }
@@ -132,7 +149,7 @@ impl Moondream {
     pub fn point(&self) -> String {
         "".into()
     }
-    fn generate(&self, input_embeds: Array3<f32>, encoded_image: EncodedImage, max_tokens: i32) {
+    fn generate(&self, input_embeds: ArrayD<f16>, encoded_image: EncodedImage, max_tokens: i32) {
         let kv_cache = prepare_kv_cache(encoded_image);
     }
 }
@@ -144,14 +161,14 @@ fn prepare_kv_cache(encoded_image: EncodedImage) -> ArrayD<f16> {
     let original_shape = encoded_image.kv_cache.shape().to_vec();
     let original_shape_len = original_shape.len();
     let new_shape = [
-        &original_shape[0..],
-        &[2048, original_shape[original_shape_len]],
+        &original_shape[0..original_shape_len-2],
+        &[2048, original_shape[original_shape_len-1]],
     ].concat();
     
     let mut kv_cache: ArrayD<f16> = ArrayD::zeros(new_shape).mapv(|v| f16::from_f32(v));
     kv_cache.slice_mut(s![.., .., .., .., ..original_shape[original_shape_len-2], ..]).assign(&encoded_image.kv_cache);
     dbg!(&kv_cache.shape());
-    return kv_cache;
+    return Array1::from(vec![f16::from(1 as u8)]).into_dyn();
 }
 
 #[cfg(test)]
@@ -169,6 +186,8 @@ mod tests {
     pub fn test_caption() {
         let md = Moondream::from_path("./model").expect("Failed to initialize moondream");
         let img = image::open("demo-1.jpg").expect("Failed to open image person.webp");
-        assert!(md.caption(img, "short".into()).is_ok());
+        let v = md.caption(img, crate::moondream::types::CaptionLength::Normal);
+        dbg!(&v);
+        assert!(v.is_ok());
     }
 }
