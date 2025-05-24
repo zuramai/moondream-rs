@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Debug, path::{Path, PathBuf}};
 
 use half::f16;
-use ndarray::ArrayD;
+use ndarray::{ArrayD, ArrayViewD};
 use ort::{session::{Session, SessionInputValue}, tensor::{IntoTensorElementType, PrimitiveTensorElementType}, value::{DynTensor, Tensor, Value}};
 use crate::error::{Error, Result};
 
@@ -18,7 +18,7 @@ impl Engine {
             session: builder
         })
     }
-    pub fn run<T, O>(&self, inputs: HashMap<&str, ArrayD<T>>, output_key: &str) -> Result<ArrayD<O>>
+    pub fn run<T, O>(&self, inputs: HashMap<&str, ArrayViewD<T>>, output_key: Vec<&str>) -> Result<HashMap<&str, ArrayD<O>>>
     where
         T: Copy + IntoTensorElementType + Debug + PrimitiveTensorElementType + 'static,
         O: Copy + IntoTensorElementType + Debug + PrimitiveTensorElementType + 'static,
@@ -27,8 +27,13 @@ impl Engine {
         // can I map this input values to a whole different type? 
         let inputs: HashMap<&str, Tensor<T>> = inputs.into_iter().map(|v| (v.0, Tensor::from_array(v.1).unwrap())).collect();
         let inference_output =self.session.run(inputs)?;
-        let output = inference_output.get(output_key).ok_or(Error::Error("Output key does not exists".into()))?;
-        let extracted = output.try_extract_tensor::<O>()?;
-        return Ok(extracted.into_dyn().to_owned());
+
+        let mut outputs = HashMap::with_capacity(2);
+        for key in output_key {
+            let output = inference_output.get(key).ok_or(Error::Error(format!("Output key {} does not exists", key)))?;
+            let extracted = output.try_extract_tensor::<O>()?;
+            outputs.insert(key, extracted.to_owned().into_dyn());
+        }
+        return Ok(outputs);
     } 
 }

@@ -13,7 +13,7 @@ use crate::error::{Error, Result};
 use crate::moondream::util;
 use super::engine::{self, Engine};
 
-const DEFAULT_MAX_TOKENS: i32 = 512;
+const DEFAULT_MAX_TOKENS: i32 = 5;
 
 pub struct Moondream {
     vision_encoder: engine::Engine,
@@ -54,7 +54,8 @@ impl Moondream {
         // Run vision encoder
         let (image_patches, template) = preprocess::create_patches(image, 378);
         dbg!(&image_patches.shape());
-        let mut patch_emb = self.vision_encoder.run(HashMap::from([("input", image_patches.into_dyn())]), "output")?;
+        let mut vision_encoded = self.vision_encoder.run(HashMap::from([("input", image_patches.view().into_dyn())]), vec!["output"])?;
+        let mut patch_emb= vision_encoded.remove("output").unwrap();
         let patch_emb_shape = patch_emb.shape();
 
         dbg!(&patch_emb.shape());
@@ -97,15 +98,17 @@ impl Moondream {
         let patch_emb = patch_emb.insert_axis(Axis(0));
 
         // run vision projection
-        let input_embeds = self.vision_projection.run(HashMap::from([("input", patch_emb)]), "output")?;
+        let mut vision_projection = self.vision_projection.run(HashMap::from([("input", patch_emb.view())]), vec!["output"])?;
+        let input_embeds = vision_projection.remove("output").unwrap();
 
         let kv_cache = self.initial_kv_cache.view();
         let pos = input_embeds.shape()[input_embeds.ndim() - 2] + kv_cache.shape()[kv_cache.ndim() - 2];
 
-        let kv_cache_update  = self.text_decoder.run(HashMap::from([
-            ("input_embeds", input_embeds),
-            ("kv_cache", kv_cache.to_owned())
-        ]), "new_kv_cache")?;
+        let mut text_decoder  = self.text_decoder.run(HashMap::from([
+            ("input_embeds", input_embeds.view()),
+            ("kv_cache", kv_cache.view())
+        ]), vec!["new_kv_cache"])?;
+        let mut kv_cache_update = text_decoder.remove("new_kv_cache").unwrap();
 
         dbg!(&kv_cache_update.shape());
 
@@ -127,10 +130,12 @@ impl Moondream {
         };
         dbg!(&input_ids);
 
+        let input_ids = Array2::from_shape_vec((1, input_ids.len()), input_ids)?.into_dyn();
+        let mut text_encoded = self.text_encoder.run::<i64, f16>(HashMap::from([
+            ("input_ids", input_ids.view())
+        ]), vec!["input_embeds"])?;
 
-        let input_embeds = self.text_encoder.run::<i64, f16>(HashMap::from([
-            ("input_ids", Array2::from_shape_vec((1, input_ids.len()), input_ids)?.into_dyn())
-        ]), "input_embeds")?;
+        let input_embeds = text_encoded.remove("input_embeds").unwrap();
 
 
         let encoded_image = self.encode_image(image)?;
@@ -149,8 +154,25 @@ impl Moondream {
     pub fn point(&self) -> String {
         "".into()
     }
-    fn generate(&self, input_embeds: ArrayD<f16>, encoded_image: EncodedImage, max_tokens: i32) {
-        let kv_cache = prepare_kv_cache(encoded_image);
+    fn generate(&self, input_embeds: ArrayD<f16>, encoded_image: EncodedImage, max_tokens: i32) -> Result<()> {
+        let pos = encoded_image.pos;
+        let mut kv_cache = prepare_kv_cache(encoded_image);
+        let mut generated_tokens = 0;
+        let input_length = input_embeds.shape()[input_embeds.ndim()-2];
+        let start = std::time::Instant::now();
+
+        while generated_tokens < max_tokens {
+            let mut decoder  = self.text_decoder.run::<f16, f16>(HashMap::from([
+                ("input_embeds", input_embeds.view()),
+                ("kv_cache", kv_cache.slice(s![.., .., .., .., ..pos, ..]).into_dyn())
+                ]), vec!["logits", "kv_cache_update"])?;
+            let logits = decoder.remove("logits").unwrap(); 
+            let kv_cache_update = decoder.remove("kv_cache_update").unwrap(); 
+            kv_cache.slice_mut(s![.., .., .., .., pos..pos+input_length, ..]).assign(&kv_cache_update);
+        }
+        let end = start.elapsed();
+        println!("time elapsed text decoder: {:?}", end);
+        Ok(())
     }
 }
 
@@ -168,7 +190,7 @@ fn prepare_kv_cache(encoded_image: EncodedImage) -> ArrayD<f16> {
     let mut kv_cache: ArrayD<f16> = ArrayD::zeros(new_shape).mapv(|v| f16::from_f32(v));
     kv_cache.slice_mut(s![.., .., .., .., ..original_shape[original_shape_len-2], ..]).assign(&encoded_image.kv_cache);
     dbg!(&kv_cache.shape());
-    return Array1::from(vec![f16::from(1 as u8)]).into_dyn();
+    return kv_cache;
 }
 
 #[cfg(test)]
