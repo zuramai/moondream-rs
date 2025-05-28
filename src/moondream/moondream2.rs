@@ -51,14 +51,15 @@ impl Moondream {
         })
     }
     pub fn encode_image(&self, image: DynamicImage) -> Result<EncodedImage> {
-        // Run vision encoder
+        // Convert image to patches
         let (image_patches, template) = preprocess::create_patches(image, 378);
-        dbg!(&image_patches.shape());
+
+        // Encode the patches using vision_encoder
+        dbg!("running vision encoder");
         let mut vision_encoded = self.vision_encoder.run(HashMap::from([("input", image_patches.view().into_dyn())]), vec!["output"])?;
         let mut patch_emb= vision_encoded.remove("output").unwrap();
         let patch_emb_shape = patch_emb.shape();
 
-        dbg!(&patch_emb.shape());
         // Reassemble patches into a single image embedding
         let global_patch = patch_emb.slice(s![0, .., ..]).into_dyn();
         if template == (1, 1) {
@@ -88,34 +89,34 @@ impl Moondream {
             // concat everything, if the template is (2, 2) we will get (54, 54, 1152)
             let result = ndarray::concatenate(Axis(0), &rows.iter().map(|x| x.view()).collect::<Vec<_>>())?;
             let result = util::adaptive_avg_pool2d(result, (w as usize, w as usize));
-            dbg!(&result.shape());
             let result = result.into_shape_with_order(((w * w) as usize, patch_emb_shape[2]))?.into_dyn();
-            dbg!(&result.shape());
             patch_emb = ndarray::concatenate![Axis(1), global_patch, result];
-            dbg!(patch_emb.shape());
         }
 
         let patch_emb = patch_emb.insert_axis(Axis(0));
 
         // run vision projection
+        dbg!("running vision projection");
         let mut vision_projection = self.vision_projection.run(HashMap::from([("input", patch_emb.view())]), vec!["output"])?;
         let input_embeds = vision_projection.remove("output").unwrap();
 
+        // kv_cache shape is [24, 2, 1, 32, 730, 64]
+        // 24 is transformer layers
+        // 2 is key and value
+        // 1 is batch size 
+        // 730 is sequence length
+        // the length of each key or value
         let kv_cache = self.initial_kv_cache.view();
         let pos = input_embeds.shape()[input_embeds.ndim() - 2] + kv_cache.shape()[kv_cache.ndim() - 2];
 
+        dbg!("running text decoder for vision projection patches result");
         let mut text_decoder  = self.text_decoder.run(HashMap::from([
             ("input_embeds", input_embeds.view()),
             ("kv_cache", kv_cache.view())
         ]), vec!["new_kv_cache"])?;
-        let mut kv_cache_update = text_decoder.remove("new_kv_cache").unwrap();
-
-        dbg!(&kv_cache_update.shape());
+        let kv_cache_update = text_decoder.remove("new_kv_cache").unwrap();
 
         let kv_cache = ndarray::concatenate![Axis(kv_cache.ndim()-2), kv_cache, kv_cache_update];
-
-        dbg!(&kv_cache.shape());
-        dbg!(&pos);
 
         Ok(EncodedImage{
             kv_cache: kv_cache,
@@ -128,23 +129,25 @@ impl Moondream {
             types::CaptionLength::Normal => self.config.templates.caption.normal.clone(),
             types::CaptionLength::Short => self.config.templates.caption.short.clone(),
         };
-        dbg!(&input_ids);
 
-        let input_ids = Array2::from_shape_vec((1, input_ids.len()), input_ids)?.into_dyn();
+        let input_ids = Array1::from_vec(input_ids)
+            .insert_axis(Axis(0)) // convert [input_ids] to [[input_ids]]
+            .into_dyn();
+    
+        // encode the prompt
         let mut text_encoded = self.text_encoder.run::<i64, f16>(HashMap::from([
             ("input_ids", input_ids.view())
         ]), vec!["input_embeds"])?;
-
         let input_embeds = text_encoded.remove("input_embeds").unwrap();
 
-
+        // encode the image
         let encoded_image = self.encode_image(image)?;
         let max_tokens = DEFAULT_MAX_TOKENS;
 
-        let generate_result = self.generate(input_embeds, encoded_image, max_tokens);
-
-        generate_result
+        // generate result
+        self.generate(input_embeds, encoded_image, max_tokens)
     }
+
     pub fn query(&self) -> String {
         "".into()
     }
@@ -161,30 +164,24 @@ impl Moondream {
         let input_length = input_embeds.shape()[input_embeds.ndim()-2];
         let start = std::time::Instant::now();
 
-        dbg!(&generated_tokens);
-        dbg!(&max_tokens);
-
         let mut tokens = vec![];
 
+        dbg!("running text encoder and decoder on generation");
         while generated_tokens < max_tokens {
-            dbg!("masuk ke", &generated_tokens);
             let mut decoder  = self.text_decoder.run::<f16, f16>(HashMap::from([
                 ("input_embeds", input_embeds.view()),
                 ("kv_cache", kv_cache.slice(s![.., .., .., .., ..pos, ..]).into_dyn())
                 ]), vec!["logits", "new_kv_cache"])?;
-            dbg!("masuk1");
 
             let logits = decoder.remove("logits").unwrap(); 
             let kv_cache_update = decoder.remove("new_kv_cache").unwrap(); 
             kv_cache.slice_mut(s![.., .., .., .., pos..pos+input_length, ..]).assign(&kv_cache_update);
-            dbg!("masuk2");
             pos += input_length;
 
             let next_token = util::argmax(&logits, -1)[0];
             if next_token as i32 == self.config.special_tokens.eos {
                 break;               
             };
-            dbg!(&next_token);
             tokens.push(next_token as u32);
 
             generated_tokens += 1;
@@ -215,7 +212,6 @@ fn prepare_kv_cache(encoded_image: EncodedImage) -> ArrayD<f16> {
     
     let mut kv_cache: ArrayD<f16> = ArrayD::zeros(new_shape).mapv(|v| f16::from_f32(v));
     kv_cache.slice_mut(s![.., .., .., .., ..original_shape[original_shape_len-2], ..]).assign(&encoded_image.kv_cache);
-    dbg!(&kv_cache.shape());
     return kv_cache;
 }
 

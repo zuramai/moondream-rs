@@ -23,8 +23,7 @@ impl Engine {
         T: Copy + IntoTensorElementType + Debug + PrimitiveTensorElementType + 'static,
         O: Copy + IntoTensorElementType + Debug + PrimitiveTensorElementType + 'static,
     {
-        dbg!(&self.session);
-        // can I map this input values to a whole different type? 
+        let start = std::time::Instant::now();
         let inputs: HashMap<&str, Tensor<T>> = inputs.into_iter().map(|v| (v.0, Tensor::from_array(v.1).unwrap())).collect();
         let inference_output =self.session.run(inputs)?;
         // dbg!(&inference_output);
@@ -34,6 +33,8 @@ impl Engine {
             let extracted = output.try_extract_tensor::<O>()?;
             outputs.insert(key.to_string(), extracted.to_owned().into_dyn());
         }
+        let duration = start.elapsed();
+        println!("Inference duration: {}ms", duration.as_millis());
         return Ok(outputs);
     } 
 }
