@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Debug, path::{Path, PathBuf}};
 
 use half::f16;
 use ndarray::{ArrayD, ArrayViewD};
-use ort::{session::{Session, SessionInputValue}, tensor::{IntoTensorElementType, PrimitiveTensorElementType}, value::{DynTensor, Tensor, Value}};
+use ort::{execution_providers::{CoreMLExecutionProvider, ExecutionProvider}, session::{Session, SessionInputValue}, tensor::{IntoTensorElementType, PrimitiveTensorElementType}, value::{DynTensor, Tensor, Value}};
 use crate::error::{Error, Result};
 
 pub struct Engine {
@@ -11,11 +11,21 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(model_path: PathBuf) -> Result<Self> {
-        let builder = Session::builder()?
-            .commit_from_file(model_path)?;
+
+        let coreml = CoreMLExecutionProvider::default();
+        if !coreml.is_available()? {
+            eprintln!("Please compile ONNX Runtime with CoreML!");
+            std::process::exit(1);
+        }
+    
+        let mut builder = Session::builder()?;        
+
+        // Note that even though ONNX Runtime was compiled with CoreML, registration could still fail!
+        coreml.register(&mut builder)?;
         
+        let session = builder.commit_from_file(model_path)?;
         Ok(Self {
-            session: builder
+            session
         })
     }
     pub fn run<T, O>(&self, inputs: HashMap<&str, ArrayViewD<T>>, output_key: Vec<&str>) -> Result<HashMap<String, ArrayD<O>>>

@@ -229,9 +229,12 @@ mod tests {
     #[test]
     pub fn test_caption() {
         let md = Moondream::from_path("./model").expect("Failed to initialize moondream");
-        let img = image::open("demo-1.jpg").expect("Failed to open image person.webp");
+        let img = image::open("demo-1.jpg").expect("Failed to open image demo-1.jpg");
+        let img2 = image::open("demo-2.jpg").expect("Failed to open image demo-2.jpg");
         let v = md.caption(img, crate::moondream::types::CaptionLength::Normal);
+        let v2 = md.caption(img2, crate::moondream::types::CaptionLength::Short);
         dbg!(&v);
+        dbg!(&v2);
         assert!(v.is_ok());
     }
 }
