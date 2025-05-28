@@ -10,7 +10,7 @@ use super::util::{normalize_image, normalize_std_mean};
 pub fn create_patches(image: DynamicImage, image_patch_size: u32) -> (Array4<f16>, (u32, u32)) {
     // start with global patch
     let mut patches = vec![
-        image.resize_exact(image_patch_size, image_patch_size, image::imageops::FilterType::Nearest)
+        image.resize_exact(image_patch_size, image_patch_size, image::imageops::FilterType::Gaussian)
     ];
 
 
@@ -47,7 +47,7 @@ pub fn create_patches(image: DynamicImage, image_patch_size: u32) -> (Array4<f16
             let x_min = col * patch_width;
             let y_min = row * patch_height;
             let img_patch = image.crop_imm(x_min, y_min, patch_width, patch_height)
-                .resize_exact(image_patch_size, image_patch_size, image::imageops::FilterType::Nearest);
+                .resize_exact(image_patch_size, image_patch_size, image::imageops::FilterType::Gaussian);
             // img_patch.save(format!("patch-{}-{}.jpg", row, col));
             patches.push(img_patch);
         }

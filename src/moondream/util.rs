@@ -21,9 +21,9 @@ pub fn normalize_image(image: DynamicImage) -> Array3<f32> {
             // use BGR format
             let pixel = image.get_pixel(x as u32, y as u32);
             match c {
-                0 => pixel[2] as f32 / 255.0,
+                0 => pixel[0] as f32 / 255.0,
                 1 => pixel[1] as f32 / 255.0,
-                2 => pixel[0] as f32 / 255.0,
+                2 => pixel[2] as f32 / 255.0,
                 _ => 0.0
             }
         }
