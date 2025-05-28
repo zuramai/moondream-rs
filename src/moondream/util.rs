@@ -1,5 +1,5 @@
 use std::{fs::File, path::Path};
-use ndarray::{s, Axis};
+use ndarray::{s, ArrayD, Axis};
 use image::{DynamicImage, GenericImageView};
 use ndarray::Array3;
 use half::f16;
@@ -105,4 +105,22 @@ pub fn adaptive_avg_pool2d(arr: Array3<f16>, output_size: (usize, usize)) -> Arr
     }
 
     return output.mapv(|v| f16::from_f32(v));
+}
+
+pub fn argmax<T>(arr: &ArrayD<T>, axis: isize) -> ArrayD<usize> 
+where T: PartialOrd + Copy 
+{
+    let actual_axis = if axis < 0 {
+        arr.ndim() as isize + axis
+    } else {
+        axis
+    } as usize;
+
+    arr.map_axis(Axis(actual_axis), |lane| {
+        lane.iter()
+            .enumerate()
+            .max_by(|x, y| x.1.partial_cmp(y.1).unwrap())
+            .map(|(i, _)| i)
+            .unwrap()
+    })
 }

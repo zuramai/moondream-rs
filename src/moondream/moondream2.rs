@@ -13,7 +13,7 @@ use crate::error::{Error, Result};
 use crate::moondream::util;
 use super::engine::{self, Engine};
 
-const DEFAULT_MAX_TOKENS: i32 = 5;
+const DEFAULT_MAX_TOKENS: i32 = 512;
 
 pub struct Moondream {
     vision_encoder: engine::Engine,
@@ -141,9 +141,9 @@ impl Moondream {
         let encoded_image = self.encode_image(image)?;
         let max_tokens = DEFAULT_MAX_TOKENS;
 
-        self.generate(input_embeds, encoded_image, max_tokens);
+        let generate_result = self.generate(input_embeds, encoded_image, max_tokens);
 
-        Ok("".into())
+        generate_result
     }
     pub fn query(&self) -> String {
         "".into()
@@ -154,25 +154,51 @@ impl Moondream {
     pub fn point(&self) -> String {
         "".into()
     }
-    fn generate(&self, input_embeds: ArrayD<f16>, encoded_image: EncodedImage, max_tokens: i32) -> Result<()> {
-        let pos = encoded_image.pos;
+    fn generate(&self, mut input_embeds: ArrayD<f16>, encoded_image: EncodedImage, max_tokens: i32) -> Result<String> {
+        let mut pos = encoded_image.pos;
         let mut kv_cache = prepare_kv_cache(encoded_image);
         let mut generated_tokens = 0;
         let input_length = input_embeds.shape()[input_embeds.ndim()-2];
         let start = std::time::Instant::now();
 
+        dbg!(&generated_tokens);
+        dbg!(&max_tokens);
+
+        let mut tokens = vec![];
+
         while generated_tokens < max_tokens {
+            dbg!("masuk ke", &generated_tokens);
             let mut decoder  = self.text_decoder.run::<f16, f16>(HashMap::from([
                 ("input_embeds", input_embeds.view()),
                 ("kv_cache", kv_cache.slice(s![.., .., .., .., ..pos, ..]).into_dyn())
-                ]), vec!["logits", "kv_cache_update"])?;
+                ]), vec!["logits", "new_kv_cache"])?;
+            dbg!("masuk1");
+
             let logits = decoder.remove("logits").unwrap(); 
-            let kv_cache_update = decoder.remove("kv_cache_update").unwrap(); 
+            let kv_cache_update = decoder.remove("new_kv_cache").unwrap(); 
             kv_cache.slice_mut(s![.., .., .., .., pos..pos+input_length, ..]).assign(&kv_cache_update);
+            dbg!("masuk2");
+            pos += input_length;
+
+            let next_token = util::argmax(&logits, -1)[0];
+            if next_token as i32 == self.config.special_tokens.eos {
+                break;               
+            };
+            dbg!(&next_token);
+            tokens.push(next_token as u32);
+
+            generated_tokens += 1;
+
+            let text_encoder_input = Array1::from_vec(vec![next_token as i64]).insert_axis(Axis(0)).into_dyn();
+            let text_encoded = self.text_encoder.run::<i64, f16>(HashMap::from([
+                ("input_ids", text_encoder_input.view())
+                ]), vec!["input_embeds"]);
+                
+            input_embeds = text_encoded.unwrap().remove("input_embeds").unwrap();
         }
         let end = start.elapsed();
         println!("time elapsed text decoder: {:?}", end);
-        Ok(())
+        Ok(self.tokenizer.decode(&tokens, true)?)
     }
 }
 
