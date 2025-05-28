@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Debug, path::{Path, PathBuf}};
 
 use half::f16;
 use ndarray::{ArrayD, ArrayViewD};
-use ort::{execution_providers::{CoreMLExecutionProvider, ExecutionProvider}, session::{Session, SessionInputValue}, tensor::{IntoTensorElementType, PrimitiveTensorElementType}, value::{DynTensor, Tensor, Value}};
+use ort::{execution_providers::{CPUExecutionProvider, CoreMLExecutionProvider}, session::{builder::GraphOptimizationLevel, Session, SessionInputValue}, sys::OrtSessionOptions, tensor::{IntoTensorElementType, PrimitiveTensorElementType}, value::{DynTensor, Tensor, Value}};
 use crate::error::{Error, Result};
 
 pub struct Engine {
@@ -11,17 +11,12 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(model_path: PathBuf) -> Result<Self> {
-
-        let coreml = CoreMLExecutionProvider::default();
-        if !coreml.is_available()? {
-            eprintln!("Please compile ONNX Runtime with CoreML!");
-            std::process::exit(1);
-        }
-    
-        let mut builder = Session::builder()?;        
-
-        // Note that even though ONNX Runtime was compiled with CoreML, registration could still fail!
-        coreml.register(&mut builder)?;
+        let builder = Session::builder()?
+            .with_optimization_level(GraphOptimizationLevel::Level3)?
+            .with_execution_providers([
+                CoreMLExecutionProvider::default().build(),
+                CPUExecutionProvider::default().build()
+            ])?;
         
         let session = builder.commit_from_file(model_path)?;
         Ok(Self {
@@ -33,18 +28,23 @@ impl Engine {
         T: Copy + IntoTensorElementType + Debug + PrimitiveTensorElementType + 'static,
         O: Copy + IntoTensorElementType + Debug + PrimitiveTensorElementType + 'static,
     {
-        let start = std::time::Instant::now();
-        let inputs: HashMap<&str, Tensor<T>> = inputs.into_iter().map(|v| (v.0, Tensor::from_array(v.1).unwrap())).collect();
-        let inference_output =self.session.run(inputs)?;
-        // dbg!(&inference_output);
+        
+        // Pre-allocate with known capacity to avoid reallocations
+        let mut ort_inputs = HashMap::with_capacity(inputs.len());
+        for (key, array_view) in inputs {
+            ort_inputs.insert(key, Tensor::from_array(array_view)?);
+        }
+        
+        let inference_output = self.session.run(ort_inputs)?;
+        
+        // Pre-allocate output HashMap with known capacity
         let mut outputs = HashMap::with_capacity(output_key.len());
         for key in output_key {
             let output = inference_output.get(key).ok_or(Error::Error(format!("Output key {} does not exists", key)))?;
             let extracted = output.try_extract_tensor::<O>()?;
             outputs.insert(key.to_string(), extracted.to_owned().into_dyn());
         }
-        let duration = start.elapsed();
-        println!("Inference duration: {}ms", duration.as_millis());
-        return Ok(outputs);
+        
+        Ok(outputs)
     } 
 }

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use half::f16;
 use image::DynamicImage;
@@ -162,16 +163,17 @@ impl Moondream {
         let mut kv_cache = prepare_kv_cache(encoded_image);
         let mut generated_tokens = 0;
         let input_length = input_embeds.shape()[input_embeds.ndim()-2];
-        let start = std::time::Instant::now();
 
-        let mut tokens = vec![];
+        let mut tokens = Vec::with_capacity(max_tokens as usize);
 
-        dbg!("running text encoder and decoder on generation");
         while generated_tokens < max_tokens {
+            let start = Instant::now();
             let mut decoder  = self.text_decoder.run::<f16, f16>(HashMap::from([
                 ("input_embeds", input_embeds.view()),
                 ("kv_cache", kv_cache.slice(s![.., .., .., .., ..pos, ..]).into_dyn())
                 ]), vec!["logits", "new_kv_cache"])?;
+
+            let end = start.elapsed();
 
             let logits = decoder.remove("logits").unwrap(); 
             let kv_cache_update = decoder.remove("new_kv_cache").unwrap(); 
@@ -182,8 +184,10 @@ impl Moondream {
             if next_token as i32 == self.config.special_tokens.eos {
                 break;               
             };
-            tokens.push(next_token as u32);
 
+            tokens.push(next_token as u32);
+            println!("text decoder duration: {}ms: Text: {}", end.as_millis(), self.tokenizer.decode(&[next_token as u32], true)?);
+            
             generated_tokens += 1;
 
             let text_encoder_input = Array1::from_vec(vec![next_token as i64]).insert_axis(Axis(0)).into_dyn();
@@ -193,8 +197,6 @@ impl Moondream {
                 
             input_embeds = text_encoded.unwrap().remove("input_embeds").unwrap();
         }
-        let end = start.elapsed();
-        println!("time elapsed text decoder: {:?}", end);
         Ok(self.tokenizer.decode(&tokens, true)?)
     }
 }
@@ -219,7 +221,6 @@ fn prepare_kv_cache(encoded_image: EncodedImage) -> ArrayD<f16> {
 mod tests {
     use super::Moondream;
 
-    #[test]
     pub fn test_encode_image() {
         let md = Moondream::from_path("./model").expect("Failed to initialize moondream");
         let img = image::open("demo-1.jpg").expect("Failed to open image person.webp");
@@ -230,11 +231,8 @@ mod tests {
     pub fn test_caption() {
         let md = Moondream::from_path("./model").expect("Failed to initialize moondream");
         let img = image::open("demo-1.jpg").expect("Failed to open image demo-1.jpg");
-        let img2 = image::open("demo-2.jpg").expect("Failed to open image demo-2.jpg");
         let v = md.caption(img, crate::moondream::types::CaptionLength::Normal);
-        let v2 = md.caption(img2, crate::moondream::types::CaptionLength::Short);
         dbg!(&v);
-        dbg!(&v2);
         assert!(v.is_ok());
     }
 }
