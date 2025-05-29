@@ -15,8 +15,6 @@ pub enum Error {
     InvalidUri(String, String),
     #[error("GRPC error: {0}")]
     GrpcError(String),
-    #[error("Tonic error: {0}")]
-    TonicError(#[from] tonic::Status),
     #[error("Tokenizer error: {0}")]
     TokenizerError(#[from] tokenizers::Error),
     #[error("Shape error: {0}")]

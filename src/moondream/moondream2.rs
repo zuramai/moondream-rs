@@ -51,7 +51,7 @@ impl Moondream {
             tokenizer: Tokenizer::from_file(path.join("tokenizer.json"))?
         })
     }
-    pub fn encode_image(&self, image: DynamicImage) -> Result<EncodedImage> {
+    pub fn encode_image(&mut self, image: DynamicImage) -> Result<EncodedImage> {
         // Convert image to patches
         let (image_patches, template) = preprocess::create_patches(image, 378);
 
@@ -98,7 +98,7 @@ impl Moondream {
 
         // run vision projection
         dbg!("running vision projection");
-        let mut vision_projection = self.vision_projection.run(HashMap::from([("input", patch_emb.view())]), vec!["output"])?;
+        let mut vision_projection = self.vision_projection.run(HashMap::from([("input", patch_emb.as_standard_layout().view())]), vec!["output"])?;
         let input_embeds = vision_projection.remove("output").unwrap();
 
         // kv_cache shape is [24, 2, 1, 32, 730, 64]
@@ -112,8 +112,8 @@ impl Moondream {
 
         dbg!("running text decoder for vision projection patches result");
         let mut text_decoder  = self.text_decoder.run(HashMap::from([
-            ("input_embeds", input_embeds.view()),
-            ("kv_cache", kv_cache.view())
+            ("input_embeds", input_embeds.as_standard_layout().view()),
+            ("kv_cache", kv_cache.as_standard_layout().view())
         ]), vec!["new_kv_cache"])?;
         let kv_cache_update = text_decoder.remove("new_kv_cache").unwrap();
 
@@ -125,7 +125,7 @@ impl Moondream {
         })
     }
 
-    pub fn caption(&self, image: DynamicImage, length: types::CaptionLength) -> Result<String> {
+    pub fn caption(&mut self, image: DynamicImage, length: types::CaptionLength) -> Result<String> {
         let input_ids = match length {
             types::CaptionLength::Normal => self.config.templates.caption.normal.clone(),
             types::CaptionLength::Short => self.config.templates.caption.short.clone(),
@@ -137,7 +137,7 @@ impl Moondream {
     
         // encode the prompt
         let mut text_encoded = self.text_encoder.run::<i64, f16>(HashMap::from([
-            ("input_ids", input_ids.view())
+            ("input_ids", input_ids.as_standard_layout().view())
         ]), vec!["input_embeds"])?;
         let input_embeds = text_encoded.remove("input_embeds").unwrap();
 
@@ -158,7 +158,8 @@ impl Moondream {
     pub fn point(&self) -> String {
         "".into()
     }
-    fn generate(&self, mut input_embeds: ArrayD<f16>, encoded_image: EncodedImage, max_tokens: i32) -> Result<String> {
+    fn generate(&mut self, mut input_embeds: ArrayD<f16>, encoded_image: EncodedImage, max_tokens: i32) -> Result<String> {
+        dbg!("Generating..");
         let mut pos = encoded_image.pos;
         let mut kv_cache = prepare_kv_cache(encoded_image);
         let mut generated_tokens = 0;
@@ -168,9 +169,10 @@ impl Moondream {
 
         while generated_tokens < max_tokens {
             let start = Instant::now();
+            let kv_cache_seqlen = kv_cache.slice(s![.., .., .., .., ..pos, ..]);
             let mut decoder  = self.text_decoder.run::<f16, f16>(HashMap::from([
-                ("input_embeds", input_embeds.view()),
-                ("kv_cache", kv_cache.slice(s![.., .., .., .., ..pos, ..]).into_dyn())
+                ("input_embeds", input_embeds.as_standard_layout().view()),
+                ("kv_cache", kv_cache_seqlen.as_standard_layout().into_dyn().view())
                 ]), vec!["logits", "new_kv_cache"])?;
 
             let end = start.elapsed();
@@ -192,7 +194,7 @@ impl Moondream {
 
             let text_encoder_input = Array1::from_vec(vec![next_token as i64]).insert_axis(Axis(0)).into_dyn();
             let text_encoded = self.text_encoder.run::<i64, f16>(HashMap::from([
-                ("input_ids", text_encoder_input.view())
+                ("input_ids", text_encoder_input.as_standard_layout().view())
                 ]), vec!["input_embeds"]);
                 
             input_embeds = text_encoded.unwrap().remove("input_embeds").unwrap();
@@ -222,14 +224,14 @@ mod tests {
     use super::Moondream;
 
     pub fn test_encode_image() {
-        let md = Moondream::from_path("./model").expect("Failed to initialize moondream");
+        let mut md = Moondream::from_path("./model").expect("Failed to initialize moondream");
         let img = image::open("demo-1.jpg").expect("Failed to open image person.webp");
         assert!(md.encode_image(img).is_ok());
     }
 
     #[test]
     pub fn test_caption() {
-        let md = Moondream::from_path("./model").expect("Failed to initialize moondream");
+        let mut md = Moondream::from_path("./model").expect("Failed to initialize moondream");
         let img = image::open("demo-1.jpg").expect("Failed to open image demo-1.jpg");
         let v = md.caption(img, crate::moondream::types::CaptionLength::Normal);
         dbg!(&v);

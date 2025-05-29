@@ -4,18 +4,33 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-dotenvy = "0.15.7"
 half = "2.6.0"
 image = "0.25.5"
 ndarray = "0.16.1"
 npyz = {version = "0.8.4", features = ["half"]}
-ort = "=2.0.0-rc.9"
+ort = { git = "https://github.com/pykeio/ort", features = [ "coreml", "half" ] }
 prost = { version = "0.13.4", features = ["prost-derive"] }
 rand = "0.8.5"
-reqwest = { version = "0.12.12", features = ["json"] }
 serde = "1.0.217"
 serde_json = "1.0.138"
 thiserror = "2.0.11"
 tokenizers = "0.21.0"
 tokio = { version = "1.43.0", features = ["full"] }
-tonic = { version = "0.12.3", features = ["tls"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[target.aarch64-apple-darwin]
+rustflags = [
+  "-C", "link-arg=-undefined",
+  "-C", "link-arg=dynamic_lookup",
+  "-C", "link-arg=-mmacosx-version-min=15.0",
+  "-C", "link-arg=-fapple-link-rtlib"
+]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-Clink-arg=-fapple-link-rtlib"]
+
