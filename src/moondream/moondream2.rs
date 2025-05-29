@@ -179,8 +179,11 @@ impl Moondream {
 
             let logits = decoder.remove("logits").unwrap(); 
             let kv_cache_update = decoder.remove("new_kv_cache").unwrap(); 
-            kv_cache.slice_mut(s![.., .., .., .., pos..pos+input_length, ..]).assign(&kv_cache_update);
-            pos += input_length;
+            
+            // Only update the position by the actual new token length (1) after the first iteration
+            let update_length = if generated_tokens == 0 { input_length } else { 1 };
+            kv_cache.slice_mut(s![.., .., .., .., pos..pos+update_length, ..]).assign(&kv_cache_update);
+            pos += update_length;
 
             let next_token = util::argmax(&logits, -1)[0];
             if next_token as i32 == self.config.special_tokens.eos {

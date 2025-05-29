@@ -12,8 +12,9 @@ pub struct Engine {
 impl Engine {
     pub fn new(model_path: PathBuf) -> Result<Self> {
         let builder = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Level1)?
+            .with_optimization_level(GraphOptimizationLevel::Level3)?
             .with_execution_providers([
+                // CoreMLExecutionProvider::default().build(),
                 CPUExecutionProvider::default().build()
             ])?;
         

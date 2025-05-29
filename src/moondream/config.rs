@@ -36,7 +36,7 @@ pub struct TemplateConfig {
     pub caption: CaptionConfig,
     pub query: PrefixSuffixConfig,
     pub detect: PrefixSuffixConfig,
-    pub point: PrefixSuffixConfig,
+    pub point: Option<PrefixSuffixConfig>,
 }
 #[derive(Deserialize)]
 pub struct CaptionConfig {
