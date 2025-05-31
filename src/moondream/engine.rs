@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Debug, path::{Path, PathBuf}};
 
 use half::f16;
 use ndarray::{ArrayD, ArrayViewD};
-use ort::{execution_providers::{CPUExecutionProvider, CoreMLExecutionProvider}, session::{builder::GraphOptimizationLevel, Session, SessionInputValue}, sys::OrtSessionOptions, tensor::{IntoTensorElementType, PrimitiveTensorElementType}, value::{DynTensor, Tensor, TensorRef, Value}};
+use ort::{execution_providers::{coreml, CPUExecutionProvider, CoreMLExecutionProvider}, session::{builder::GraphOptimizationLevel, Session, SessionInputValue}, sys::OrtSessionOptions, tensor::{IntoTensorElementType, PrimitiveTensorElementType}, value::{DynTensor, Tensor, TensorRef, Value}};
 use crate::error::{Error, Result};
 
 pub struct Engine {
@@ -12,10 +12,16 @@ pub struct Engine {
 impl Engine {
     pub fn new(model_path: PathBuf) -> Result<Self> {
         let builder = Session::builder()?
+
             .with_optimization_level(GraphOptimizationLevel::Level3)?
             .with_execution_providers([
-                // CoreMLExecutionProvider::default().build(),
-                CPUExecutionProvider::default().build()
+                CoreMLExecutionProvider::default()
+                    .with_compute_units(coreml::CoreMLComputeUnits::All)
+                    .with_static_input_shapes(true)
+                    .with_model_format(coreml::CoreMLModelFormat::MLProgram)
+                    .with_specialization_strategy(coreml::CoreMLSpecializationStrategy::FastPrediction)
+                    .build(),
+                // CPUExecutionProvider::default().build()
             ])?;
         
         let session = builder.commit_from_file(model_path)?;
