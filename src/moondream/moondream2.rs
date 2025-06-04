@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use half::f16;
 use image::DynamicImage;
-use ndarray::{s, Array1, Array2, Array3, Array6, ArrayD, Axis, Ix2, Ix3};
+use ndarray::{s, Array1, Array2, Array3, Array6, ArrayD, ArrayViewD, Axis, Ix2, Ix3};
 use tokenizers::Tokenizer;
 use super::config::{self, MoondreamConfig};
 use super::{preprocess, types};
@@ -149,15 +149,76 @@ impl Moondream {
         self.generate(input_embeds, encoded_image, max_tokens)
     }
 
+
+    fn run_decoder(&mut self, input_embeds: ArrayD<f16>, kv_cache: &mut ArrayD<f16> , pos: usize) -> Result<(ArrayD<f16>, ArrayD<f16>)>{
+        let mut text_decoder  = self.text_decoder.run(HashMap::from([
+            ("input_embeds", input_embeds.as_standard_layout().view()),
+            ("kv_cache", kv_cache.as_standard_layout().view())
+        ]), vec!["new_kv_cache", "hidden", "logits"])?;
+        let kv_cache_update = text_decoder.remove("new_kv_cache").unwrap();
+        let hidden = text_decoder.remove("hidden").unwrap();
+        let logits = text_decoder.remove("logits").unwrap();
+
+        kv_cache.slice_mut(s![.., .., .., .., pos..pos+hidden.shape()[hidden.ndim()-2], ..]).assign(&kv_cache_update);
+
+        return Ok((logits, hidden));
+    }
+
     pub fn query(&self) -> String {
         "".into()
     }
-    pub fn detect(&self) -> String {
-        "".into()
+    pub fn detect(&mut self, image: DynamicImage, object: String) -> Result<String> {
+        let prompt_toks = [
+            self.config.templates.detect.prefix.as_slice(),
+            self.tokenizer.encode(object, false)?.get_ids(),
+            self.config.templates.detect.suffix.as_slice(),
+        ].concat();
+
+        let input_ids = Array1::from_vec(prompt_toks)
+            .mapv(|v| v as i64)
+            .insert_axis(Axis(0)) // convert [input_ids] to [[input_ids]]
+            .into_dyn();
+
+        let mut text_decoded = self.text_encoder.run(HashMap::from([
+            ("input_ids", input_ids.view())
+        ]), vec!["input_embeds"])?;
+        let mut hidden = text_decoded.remove("input_embeds").unwrap();
+
+        let encoded_image = self.encode_image(image)?;
+        let mut pos = encoded_image.pos;
+        let mut kv_cache = prepare_kv_cache(encoded_image);
+
+        let mut objects = Vec::new();
+        let max_objects = 1;
+
+        while objects.len() < max_objects {
+            let (logits, hidden_result) = self.run_decoder(hidden, &mut kv_cache, pos)?;
+            pos += hidden_result.shape()[hidden_result.ndim()-2];
+            if util::argmax(&logits, -1)[0] == self.config.special_tokens.eos {
+                break;
+            }
+
+            let mut x_center = self.coord_decoder.run(HashMap::from([
+                ("input", hidden_result.slice(s![0, -1, ..]).view().into_dyn()),
+            ]), vec!["x_center"])?;
+            let x_center: ArrayD<f16> = x_center.remove("x_center").expect("`x_center` output does not exists");
+            let x_center = util::argmax(&x_center, -1) / x_center.shape()[x_center.ndim()-1];
+            let x_center = x_center.mapv(|v| v as f32);
+
+            let mut hidden_result = self.coord_decoder.run(HashMap::from([
+                ("input", x_center.view().into_dyn()),
+            ]), vec!["hidden"])?;
+            hidden = hidden_result.remove("hidden").expect("`hidden` output does not exists");
+
+            objects.push(x_center);
+        };
+        Ok("".into())
+        
     }
     pub fn point(&self) -> String {
         "".into()
     }
+    
     fn generate(&mut self, mut input_embeds: ArrayD<f16>, encoded_image: EncodedImage, max_tokens: i32) -> Result<String> {
         dbg!("Generating..");
         let mut pos = encoded_image.pos;
@@ -186,7 +247,7 @@ impl Moondream {
             pos += update_length;
 
             let next_token = util::argmax(&logits, -1)[0];
-            if next_token as i32 == self.config.special_tokens.eos {
+            if next_token == self.config.special_tokens.eos {
                 break;               
             };
 
@@ -226,17 +287,26 @@ fn prepare_kv_cache(encoded_image: EncodedImage) -> ArrayD<f16> {
 mod tests {
     use super::Moondream;
 
-    pub fn test_encode_image() {
-        let mut md = Moondream::from_path("./model").expect("Failed to initialize moondream");
-        let img = image::open("demo-1.jpg").expect("Failed to open image person.webp");
-        assert!(md.encode_image(img).is_ok());
-    }
+    // pub fn test_encode_image() {
+    //     let mut md = Moondream::from_path("./model").expect("Failed to initialize moondream");
+    //     let img = image::open("demo-1.jpg").expect("Failed to open image person.webp");
+    //     assert!(md.encode_image(img).is_ok());
+    // }
+
+    // #[test]
+    // pub fn test_caption() {
+    //     let mut md = Moondream::from_path("./model").expect("Failed to initialize moondream");
+    //     let img = image::open("demo-1.jpg").expect("Failed to open image demo-1.jpg");
+    //     let v = md.caption(img, crate::moondream::types::CaptionLength::Normal);
+    //     dbg!(&v);
+    //     assert!(v.is_ok());
+    // }
 
     #[test]
-    pub fn test_caption() {
+    pub fn test_detect() {
         let mut md = Moondream::from_path("./model").expect("Failed to initialize moondream");
         let img = image::open("demo-1.jpg").expect("Failed to open image demo-1.jpg");
-        let v = md.caption(img, crate::moondream::types::CaptionLength::Normal);
+        let v = md.detect(img, "bread".to_string());
         dbg!(&v);
         assert!(v.is_ok());
     }

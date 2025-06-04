@@ -25,10 +25,10 @@ impl MoondreamConfig {
 
 #[derive(Deserialize)]
 pub struct SpecialTokensConfig {
-    pub bos: i32,
-    pub eos: i32,
-    pub coord: i32,
-    pub size: i32,
+    pub bos: usize,
+    pub eos: usize,
+    pub coord: usize,
+    pub size: usize,
 }
 
 #[derive(Deserialize)]
@@ -45,6 +45,6 @@ pub struct CaptionConfig {
 }
 #[derive(Deserialize)]
 pub struct PrefixSuffixConfig {
-    pub prefix: Vec<i32>,
-    pub suffix: Vec<i32>
+    pub prefix: Vec<u32>,
+    pub suffix: Vec<u32>
 }

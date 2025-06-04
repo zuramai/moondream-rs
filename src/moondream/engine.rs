@@ -34,7 +34,7 @@ impl Engine {
         T: Copy + IntoTensorElementType + Debug + PrimitiveTensorElementType + 'static,
         O: Copy + IntoTensorElementType + Debug + PrimitiveTensorElementType + 'static,
     {
-        
+        dbg!(&self.session);
         // Pre-allocate with known capacity to avoid reallocations
         let mut ort_inputs = HashMap::with_capacity(inputs.len());
         for (key, array_view) in inputs {
