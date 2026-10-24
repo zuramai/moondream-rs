@@ -4,6 +4,7 @@
 //! this matches the decoder's `[24, 2, 1, H, seq, 64]` tensors row by row.
 
 use half::f16;
+use rayon::prelude::*;
 
 use super::OnnxEncodedImage;
 
@@ -41,12 +42,15 @@ impl KvBuffer {
     }
 
     /// Returns the first `pos` positions as a contiguous `[.., pos, head_dim]` tensor.
+    ///
+    /// This copy (tens of MB per decoded token) is split across threads.
     pub(crate) fn prefix(&mut self, pos: usize) -> ([usize; 6], &[f16]) {
         let row = pos * self.head_dim;
-        self.scratch.clear();
-        for src in self.data.chunks_exact(MAX_CONTEXT * self.head_dim) {
-            self.scratch.extend_from_slice(&src[..row]);
-        }
+        self.scratch.resize(self.rows * row, f16::ZERO);
+        self.scratch
+            .par_chunks_mut(row)
+            .zip(self.data.par_chunks(MAX_CONTEXT * self.head_dim))
+            .for_each(|(dst, src)| dst.copy_from_slice(&src[..row]));
         let [a, b, c, d] = self.lead;
         ([a, b, c, d, pos, self.head_dim], &self.scratch)
     }
