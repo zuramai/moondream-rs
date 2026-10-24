@@ -3,6 +3,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use clap::{CommandFactory, Parser, Subcommand};
+use tracing_subscriber::{filter::Targets, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser)]
 #[command(name = "moondream", about = "Moondream CLI")]
@@ -29,8 +30,13 @@ enum Command {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+    // ONNX Runtime logs allocator details at INFO; the Python CLI shows errors only.
+    let filter = Targets::new()
+        .with_default(tracing::Level::INFO)
+        .with_target("ort", tracing::Level::ERROR);
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(filter)
         .init();
     let cli = Cli::parse();
     let Some(Command::Serve { model, host, port }) = cli.command else {
@@ -43,8 +49,7 @@ async fn main() {
             .exit();
     };
     let result = async {
-        let path = model.clone();
-        let vl = tokio::task::spawn_blocking(move || moondream_rs::vl(path))
+        let vl = tokio::task::spawn_blocking(move || moondream_rs::vl(model))
             .await
             .map_err(|e| moondream_rs::Error::InvalidModel(format!("model loading panicked: {e}")))??;
         moondream_rs::server::serve(Arc::from(vl), &host, port).await

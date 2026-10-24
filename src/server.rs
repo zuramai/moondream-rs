@@ -60,8 +60,18 @@ pub fn router(model: Model) -> Router {
 }
 
 /// Serves `model` on `host:port` until Ctrl-C.
+///
+/// Like Python's `HTTPServer`, an IPv4 address is preferred when `host`
+/// resolves to several (e.g. `localhost` → `127.0.0.1` rather than `::1`).
 pub async fn serve(model: Model, host: &str, port: u16) -> Result<()> {
-    let listener = tokio::net::TcpListener::bind((host, port)).await?;
+    let addrs: Vec<_> = tokio::net::lookup_host((host, port)).await?.collect();
+    let addr = addrs
+        .iter()
+        .find(|a| a.is_ipv4())
+        .or(addrs.first())
+        .copied()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("cannot resolve {host}")))?;
+    let listener = tokio::net::TcpListener::bind(addr).await?;
     println!("Starting Moondream server on http://{host}:{port}");
     axum::serve(listener, router(model))
         .with_graceful_shutdown(async {
