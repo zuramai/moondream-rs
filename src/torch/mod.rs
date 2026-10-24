@@ -335,10 +335,15 @@ impl Vlm for TorchVL {
             return Ok(EncodedImage::Torch(enc.clone()));
         }
         let (caches, pos) = self.load_image(image)?;
-        // `copy` detaches the snapshot from storage later mutated by `slice_set`.
+        // The snapshot must own fresh contiguous storage: `slice_set` (used to
+        // restore it) needs contiguous input and later mutates the working cache.
+        let detach = |t: &Tensor| -> Result<Tensor> {
+            let t = t.narrow(2, 0, pos)?;
+            Ok(if t.is_contiguous() { t.copy()? } else { t.contiguous()? })
+        };
         let caches = caches
             .iter()
-            .map(|(k, v)| Ok((k.narrow(2, 0, pos)?.copy()?, v.narrow(2, 0, pos)?.copy()?)))
+            .map(|(k, v)| Ok((detach(k)?, detach(v)?)))
             .collect::<Result<_>>()?;
         Ok(EncodedImage::Torch(TorchEncodedImage { pos, caches }))
     }
