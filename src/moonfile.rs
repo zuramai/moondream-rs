@@ -5,40 +5,23 @@
 
 use std::{fs::File, io::Read, path::Path};
 
-use memmap2::Mmap;
-
 use crate::{Error, Result};
 
 const MAGIC: &[u8; 4] = b"MOON";
 const VERSION: u8 = 1;
 
-/// Raw bundle bytes: memory-mapped when uncompressed, decompressed otherwise.
-pub(crate) enum ModelBytes {
-    Mapped(Mmap),
-    Owned(Vec<u8>),
-}
-
-impl ModelBytes {
-    pub(crate) fn as_slice(&self) -> &[u8] {
-        match self {
-            ModelBytes::Mapped(m) => m,
-            ModelBytes::Owned(v) => v,
-        }
-    }
-}
-
-/// Opens a `.mf` file; a `.gz` suffix is decompressed into memory.
-pub(crate) fn open(path: &Path) -> Result<ModelBytes> {
-    let file = File::open(path)?;
+/// Reads a `.mf` file into memory; a `.gz` suffix is decompressed.
+///
+/// A plain read beats `mmap` here: ONNX Runtime touches every initializer
+/// during session creation, and page-faulting ~1 GB through a mapping more
+/// than doubled load time on macOS.
+pub(crate) fn read(path: &Path) -> Result<Vec<u8>> {
     if path.extension().is_some_and(|e| e == "gz") {
         let mut out = Vec::new();
-        flate2::read::GzDecoder::new(file).read_to_end(&mut out)?;
-        return Ok(ModelBytes::Owned(out));
+        flate2::read::GzDecoder::new(File::open(path)?).read_to_end(&mut out)?;
+        return Ok(out);
     }
-    // SAFETY: the model file is opened read-only and is not modified by this
-    // process while mapped; concurrent external modification is unsupported.
-    let map = unsafe { Mmap::map(&file)? };
-    Ok(ModelBytes::Mapped(map))
+    Ok(std::fs::read(path)?)
 }
 
 fn take<'a>(bytes: &mut &'a [u8], n: usize) -> Result<&'a [u8]> {

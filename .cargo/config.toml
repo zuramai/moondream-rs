@@ -1,0 +1,7 @@
+# The prebuilt ONNX Runtime (ort-sys) references `__isPlatformVersionAtLeast`
+# from clang's compiler-rt, which rustc does not link on macOS by default.
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fapple-link-rtlib"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-fapple-link-rtlib"]

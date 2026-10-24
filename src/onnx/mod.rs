@@ -12,8 +12,12 @@ use std::{
 
 use half::f16;
 use ort::{
-    execution_providers::ExecutionProviderDispatch,
-    session::{builder::GraphOptimizationLevel, Session},
+    environment::Environment,
+    ep::ExecutionProviderDispatch,
+    session::{
+        builder::{AutoDevicePolicy, GraphOptimizationLevel},
+        Session,
+    },
     value::TensorRef,
 };
 use parking_lot::Mutex;
@@ -112,20 +116,48 @@ enum Source<'a> {
 }
 
 fn execution_providers() -> Vec<ExecutionProviderDispatch> {
-    #[allow(unused_mut)]
-    let mut eps = Vec::new();
-    #[cfg(feature = "cuda")]
-    eps.push(ort::execution_providers::CUDAExecutionProvider::default().build());
-    #[cfg(feature = "coreml")]
-    eps.push(ort::execution_providers::CoreMLExecutionProvider::default().build());
-    eps
+    vec![
+        #[cfg(feature = "cuda")]
+        ort::ep::CUDA::default().build(),
+        #[cfg(feature = "coreml")]
+        ort::ep::CoreML::default().build(),
+    ]
 }
 
-fn build_session(source: &Source<'_>) -> Result<Session> {
-    let builder = Session::builder()?
-        .with_log_level(ort::logging::LogLevel::Error)?
-        .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_execution_providers(execution_providers())?;
+/// The process-wide ONNX Runtime environment (ort allows only one).
+fn environment() -> Result<Environment> {
+    static ENV: Mutex<Option<Environment>> = Mutex::new(None);
+    let mut env = ENV.lock();
+    if let Some(env) = env.as_ref() {
+        return Ok(env.clone());
+    }
+    let built = ort::init().with_name("moondream").build()?;
+    // Like `ort.set_default_logger_severity(3)` in the Python client; ORT
+    // otherwise formats verbose messages during session creation.
+    built.set_log_level(ort::logging::LogLevel::Error);
+    *env = Some(built.clone());
+    Ok(built)
+}
+
+fn build_session(env: &Environment, source: &Source<'_>) -> Result<Session> {
+    // Builder setters return `ort::Error<SessionBuilder>`; erase the payload.
+    fn erase(e: ort::Error<ort::session::builder::SessionBuilder>) -> Error {
+        Error::Ort(e.into())
+    }
+    // Python's ORT_ENABLE_ALL (`Level3` is only ENABLE_LAYOUT). ort defaults to
+    // the `MaxEfficiency` device policy, which can route models to slower
+    // devices; `PreferCPU` matches the Python client unless an accelerator
+    // feature registers explicit providers.
+    let builder = Session::builder(env)?
+        .with_log_level(ort::logging::LogLevel::Error)
+        .map_err(erase)?
+        .with_auto_device(AutoDevicePolicy::PreferCPU)
+        .map_err(erase)?
+        .with_optimization_level(GraphOptimizationLevel::All)
+        .map_err(erase)?;
+    let mut builder = builder
+        .with_execution_providers(execution_providers())
+        .map_err(erase)?;
     Ok(match source {
         Source::Memory(bytes) => builder.commit_from_memory(bytes)?,
         Source::File(path) => builder.commit_from_file(path)?,
@@ -184,9 +216,9 @@ impl OnnxVL {
                 "Model path is invalid or file does not exist.".into(),
             ));
         }
-        let bytes = moonfile::open(path)?;
+        let bytes = moonfile::read(path)?;
         let mut components: HashMap<&str, &[u8]> = HashMap::new();
-        for (name, content) in moonfile::entries(bytes.as_slice())? {
+        for (name, content) in moonfile::entries(&bytes)? {
             let base = name.rsplit('/').next().unwrap_or(name);
             let key = base.split('.').next().unwrap_or(base);
             components.insert(key, content);
@@ -220,10 +252,12 @@ impl OnnxVL {
         let initial_kv_cache = npy.into_vec::<f16>()?;
 
         // Session creation dominates load time; build all of them concurrently.
+        let env = environment()?;
+        let env = &env;
         let mut sessions: HashMap<&str, Session> = std::thread::scope(|s| {
             let handles: Vec<_> = sources
                 .iter()
-                .map(|(&key, src)| (key, s.spawn(move || build_session(src))))
+                .map(|(&key, src)| (key, s.spawn(move || build_session(env, src))))
                 .collect();
             handles
                 .into_iter()
