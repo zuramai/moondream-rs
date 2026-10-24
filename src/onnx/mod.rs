@@ -312,11 +312,21 @@ impl OnnxVL {
 
     fn encode_raw(&self, image: &image::DynamicImage) -> Result<OnnxEncodedImage> {
         let (patches, n, template) = create_patches(image)?;
+        self.encode_patches(&patches, n, template)
+    }
+
+    /// Vision encoder → projection → text prefill for `[n, 3, 378, 378]` patches.
+    fn encode_patches(
+        &self,
+        patches: &[f16],
+        n: usize,
+        template: (usize, usize),
+    ) -> Result<OnnxEncodedImage> {
         let s = preprocess::PATCH_SIZE;
         let (feat, seq, enc_dim) = {
             let mut sess = self.vision_encoder.lock();
             let out = sess.run(ort::inputs![
-                "input" => TensorRef::from_array_view(([n, 3, s, s], patches.as_slice()))?
+                "input" => TensorRef::from_array_view(([n, 3, s, s], patches))?
             ])?;
             let (shape, data) = out["output"].try_extract_tensor::<f16>()?;
             (data.to_vec(), shape[1] as usize, shape[2] as usize)
@@ -331,6 +341,10 @@ impl OnnxVL {
             let mut full = vec![f16::ZERO; gh * gw * enc_dim];
             for r in 0..rows {
                 for c in 0..cols {
+                    // Local crops start at index 1 (index 0 is the global patch).
+                    // `onnx_vl.py` indexes from 0, feeding the global patch as the
+                    // first tile and dropping the last crop; this follows the
+                    // reference torch model (`outputs[1:]`) instead.
                     let patch = &feat[(1 + r * cols + c) * seq * enc_dim..][..seq * enc_dim];
                     for y in 0..grid {
                         let dst = ((r * grid + y) * gw + c * grid) * enc_dim;
