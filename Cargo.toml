@@ -4,33 +4,39 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-half = "2.6.0"
-image = "0.25.5"
-ndarray = "0.16.1"
-npyz = {version = "0.8.4", features = ["half"]}
-ort = { git = "https://github.com/pykeio/ort", features = [ "coreml", "half" ] }
-prost = { version = "0.13.4", features = ["prost-derive"] }
-rand = "0.8.5"
-serde = "1.0.217"
-serde_json = "1.0.138"
-thiserror = "2.0.11"
-tokenizers = "0.21.0"
-tokio = { version = "1.43.0", features = ["full"] }
+ort = { version = "=2.0.0-rc.10", features = ["half"] }
+half = "2"
+image = "0.25"
+fast_image_resize = { version = "6.1", features = ["image"] }
+rayon = "1.12"
+tokenizers = { version = "0.21", features = ["http"] }
+npyz = { version = "0.8", features = ["half"] }
+memmap2 = "0.9"
+flate2 = "1.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+parking_lot = "0.12"
+rand = "0.8"
+candle-core = "0.11"
+candle-nn = "0.11"
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[features]
+default = []
+cuda = ["ort/cuda", "candle-core/cuda", "candle-nn/cuda"]
+coreml = ["ort/coreml"]
+metal = ["candle-core/metal", "candle-nn/metal"]
+accelerate = ["candle-core/accelerate", "candle-nn/accelerate"]
 
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
-
-[target.aarch64-apple-darwin]
-rustflags = [
-  "-C", "link-arg=-undefined",
-  "-C", "link-arg=dynamic_lookup",
-  "-C", "link-arg=-mmacosx-version-min=15.0",
-  "-C", "link-arg=-fapple-link-rtlib"
-]
-
-[target.x86_64-apple-darwin]
-rustflags = ["-Clink-arg=-fapple-link-rtlib"]
-

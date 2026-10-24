@@ -1,38 +1,42 @@
-use std::{error::Error as E, fs::File};
-use thiserror::Error;
+//! Error type shared by every backend.
 
-#[derive(Error, Debug)]
+/// Errors returned by this crate.
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Error: {0}")]
-    Error(String),
-    #[error("Io Error: {0}")]
-    IoError(#[from] std::io::Error),
+    /// Filesystem or stream failure.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    /// JSON (de)serialization failure.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    /// ONNX Runtime failure.
+    #[error(transparent)]
+    Ort(#[from] ort::Error),
+    /// Candle tensor failure.
+    #[error(transparent)]
+    Candle(#[from] candle_core::Error),
+    /// Tokenizer failure.
+    #[error("tokenizer error: {0}")]
+    Tokenizer(#[from] tokenizers::Error),
+    /// Image decoding failure.
+    #[error(transparent)]
+    Image(#[from] image::ImageError),
+    /// Image resizing failure.
+    #[error(transparent)]
+    Resize(#[from] fast_image_resize::ResizeError),
+    /// The model file or directory is malformed or incomplete.
     #[error("{0}")]
-    SerializeError(#[from] serde_json::error::Error),
-    #[error("Triton inference error: {0}")]
-    TritonInferenceError(String),
-    #[error("Invalid Triton GRPC URI: {0}")]
-    InvalidUri(String, String),
-    #[error("GRPC error: {0}")]
-    GrpcError(String),
-    #[error("Tokenizer error: {0}")]
-    TokenizerError(#[from] tokenizers::Error),
-    #[error("Shape error: {0}")]
-    ShapeError(#[from] ndarray::ShapeError),
-    #[error("Ort Error: {0}")]
-    OrtError(#[from] ort::error::Error),
+    InvalidModel(String),
+    /// The model path has an unsupported extension.
+    #[error("Unsupported model filetype. Please use a .safetensors model for GPU use or .mf model for CPU use.")]
+    UnsupportedModelFiletype,
+    /// The model does not support the requested capability.
+    #[error("{0}")]
+    Unsupported(String),
+    /// An [`crate::EncodedImage`] from one backend was passed to another.
+    #[error("encoded image was produced by a different backend")]
+    EncodedImageMismatch,
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
-
-impl Error {
-    pub fn new(message: &str) -> Self {
-        Error::Error(message.to_string())
-    }
-    pub fn from_error(error: &dyn E) -> Self {
-        Error::Error(error.to_string())
-    }
-    pub fn from_string(error: String) -> Self {
-        Error::Error(error)
-    }
-}
+/// Result alias using [`Error`].
+pub type Result<T, E = Error> = std::result::Result<T, E>;
