@@ -11,6 +11,23 @@ backends, and the `moondream serve` HTTP server.
 
 `moondream_rs::vl(path)` picks the backend from the path.
 
+## Install
+
+```toml
+[dependencies]
+moondream-rs = "0.1"
+```
+
+Server binary: `cargo install moondream-rs` (installs `moondream`).
+
+On macOS, the prebuilt ONNX Runtime needs clang's compiler-rt. Add this to your
+project's `.cargo/config.toml` (or pass it via `RUSTFLAGS`):
+
+```toml
+[target.'cfg(target_os = "macos")']
+rustflags = ["-C", "link-arg=-fapple-link-rtlib"]
+```
+
 ## Library
 
 ```rust
@@ -24,7 +41,6 @@ for chunk in model.query_stream((&encoded).into(), "What is in the image?", None
     print!("{}", chunk?);
 }
 println!("{:?}", model.detect((&image).into(), "a face")?.objects);
-# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 The API is blocking; `*_stream` methods validate and encode eagerly, then
@@ -68,3 +84,7 @@ cargo test --release --test onnx_e2e -- --ignored              # needs ./model
 MOONDREAM_SAFETENSORS=model-torch/model.safetensors \
   cargo test --release --features metal --test torch_e2e -- --ignored
 ```
+
+## License
+
+Apache-2.0, same as upstream [Moondream](https://github.com/vikhyat/moondream). See [LICENSE](LICENSE).

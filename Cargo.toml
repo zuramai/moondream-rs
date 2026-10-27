@@ -2,6 +2,16 @@
 name = "moondream-rs"
 version = "0.1.0"
 edition = "2021"
+description = "Rust port of the Moondream vision-language model client: ONNX Runtime and candle backends plus an HTTP server"
+license = "Apache-2.0"
+authors = ["Saugi <saugi.dev@gmail.com>"]
+repository = "https://github.com/zuramai/moondream-rs"
+homepage = "https://github.com/zuramai/moondream-rs"
+documentation = "https://docs.rs/moondream-rs"
+readme = "README.md"
+keywords = ["moondream", "vision", "vlm", "onnx", "candle"]
+categories = ["computer-vision", "science", "web-programming::http-server"]
+include = ["/src", "/README.md", "/LICENSE"]
 
 [dependencies]
 ort = { version = "=2.0.0-rc.15", features = ["half"] }
